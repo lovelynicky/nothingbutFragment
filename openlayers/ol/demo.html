@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Draw Features</title>
+    <link rel="stylesheet" href="http://openlayers.org/en/v3.16.0/css/ol.css" type="text/css">
+    <script src="http://openlayers.org/en/v3.16.0/build/ol.js"></script>
+</head>
+<body>
+<div id="map" class="map"></div>
+<form class="form-inline">
+    <label>Geometry type &nbsp;</label>
+    <select id="type">
+        <option value="Point">Point</option>
+        <option value="LineString">LineString</option>
+        <option value="Polygon">Polygon</option>
+        <option value="Circle">Circle</option>
+        <option value="Square">Square</option>
+        <option value="Box">Box</option>
+        <option value="None">None</option>
+    </select>
+</form>
+<script>
+    var raster = new ol.layer.Tile({
+        source: new ol.source.MapQuest({layer: 'sat'})
+    });
+
+    var source = new ol.source.Vector({wrapX: false});
+
+    var vector = new ol.layer.Vector({
+        source: source,
+        style: new ol.style.Style({
+            fill: new ol.style.Fill({
+                color: 'rgba(255, 255, 255, 0.2)'
+            }),
+            stroke: new ol.style.Stroke({
+                color: '#ffcc33',
+                width: 2
+            }),
+            image: new ol.style.Circle({
+                radius: 7,
+                fill: new ol.style.Fill({
+                    color: '#ffcc33'
+                })
+            })
+        })
+    });
+
+    var map = new ol.Map({
+        layers: [raster, vector],
+        target: 'map',
+        view: new ol.View({
+            center: [-11000000, 4600000],
+            zoom: 4
+        })
+    });
+
+    var typeSelect = document.getElementById('type');
+
+    var draw; // global so we can remove it later
+    function addInteraction() {
+        var value = typeSelect.value;
+        if (value !== 'None') {
+            var geometryFunction, maxPoints;
+            if (value === 'Square') {
+                value = 'Circle';
+                geometryFunction = ol.interaction.Draw.createRegularPolygon(4);
+            } else if (value === 'Box') {
+                value = 'LineString';
+                maxPoints = 2;
+                geometryFunction = function (coordinates, geometry) {
+                    if (!geometry) {
+                        geometry = new ol.geom.Polygon(null);
+                    }
+                    var start = coordinates[0];
+                    var end = coordinates[1];
+                    geometry.setCoordinates([
+                        [start, [start[0], end[1]], end, [end[0], start[1]], start]
+                    ]);
+                    return geometry;
+                };
+            }
+            draw = new ol.interaction.Draw({
+                source: source,
+                type: /** @type {ol.geom.GeometryType} */ (value),
+                geometryFunction: geometryFunction,
+                maxPoints: maxPoints
+            });
+
+            /**
+             *给绘图添加开始和结束事件
+             */
+            draw.on("drawstart", function (event) {
+                //todo
+            });
+
+            draw.on("drawend", function (event) {
+                var geometry = event.feature.getGeometry();
+                if (geometry instanceof ol.geom.Circle) {
+                    showCircleInfo(event);
+                }
+                if (geometry instanceof ol.geom.Polygon) {
+                    var coordinates = geometry.getCoordinates();
+                    var leftTopCoordinate = coordinates[0][0];
+                    var rightDownCoordinate = coordinates[0][2];
+                    var rightTopCoordinate = coordinates[0][3];
+                    var startX = leftTopCoordinate[0];
+                    var endX = rightDownCoordinate[0];
+                    var startY = leftTopCoordinate[1];
+                    var endY = rightDownCoordinate[1];
+                    var length = startX - endX >= 0 ? startX - endX : endX - startX;
+                    var height = startY - endY >= 0 ? startY - endY : endY - startY;
+                    var ratio = length / height;
+                    var coordinateX = startX > endX ? startX - (startX - endX) * 0.05 : endX - (endX - startX) * 0.05;
+                    var coordinateY = startY > endY ? startY - (startY - endY) * ratio * 0.05 : endY - (endY - startY) * ratio * 0.05;
+                    var coordinate = [];
+                    coordinate.push(coordinateX);
+                    coordinate.push(coordinateY);
+                    source.addFeature(new ol.Feature({
+                        geometry: new ol.geom.Circle(coordinate,70000)
+                    }));
+                }
+            });
+            map.addInteraction(draw);
+        }
+    }
+
+    map.on('click', function (event) {
+        var feature = map.forEachFeatureAtPixel(event.pixel,
+                function (feature) {
+                    return feature;
+                });
+        if (feature) {
+            if (feature.getGeometry() instanceof ol.geom.Circle) {
+                alert("hello");
+            }
+        } else {
+
+        }
+    });
+
+    function showCircleInfo(event) {
+        var feature = event.feature;
+        var geometry = feature.getGeometry();
+        var extent = geometry.getExtent();
+        var downCoordinate = [];
+        downCoordinate.push(extent[0]);
+        downCoordinate.push(extent[1]);
+        var topCoordinate = [];
+        topCoordinate.push(extent[2]);
+        topCoordinate.push(extent[3]);
+        //定义文件格式，并且规定多少个单位代表一米m
+        var project = new ol.proj.Projection({code: 'EPSG:3857', metersPerUnit: ol.proj.METERS_PER_UNIT});
+        var formattedDownCoordinate = ol.proj.fromLonLat(ol.proj.toLonLat(downCoordinate, 'EPSG:3857'), project);
+        var formattedTopCoordinate = ol.proj.fromLonLat(ol.proj.toLonLat(topCoordinate, 'EPSG:3857'), project);
+        var kiloMeters = (formattedTopCoordinate[0] - formattedDownCoordinate[0]) / 2000;
+        var distanceRound = Math.round(kiloMeters * Math.pow(10, 2)) / Math.pow(10, 2);
+        console.log("圆心" + ol.proj.toLonLat(geometry.getCenter(), 'EPSG:3857'));
+        console.log("半径" + distanceRound + "km");
+    }
+
+
+    /**
+     * Handle change event.
+     */
+    typeSelect.onchange = function () {
+        map.removeInteraction(draw);
+        addInteraction();
+    };
+
+    addInteraction();
+</script>
+</body>
+</html>

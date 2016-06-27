@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Marker Animation</title>
+    <link rel="stylesheet" href="http://openlayers.org/en/v3.16.0/css/ol.css" type="text/css">
+    <script src="http://openlayers.org/en/v3.16.0/build/ol.js"></script>
+</head>
+<body>
+<div id="map" class="map"></div>
+<script>
+    var totalIndices = 0;
+    var expandNumbers = 100;
+    var coordinates = [ol.proj.fromLonLat([16, 48]), ol.proj.fromLonLat([30, 58]), ol.proj.fromLonLat([50, 20]), ol.proj.fromLonLat([70, 36])];
+    var styleFunction = function (feature) {
+        var geometry = feature.getGeometry();
+        var styles = [
+            // linestring
+            new ol.style.Style({
+                stroke: new ol.style.Stroke({
+                    color: [237, 212, 0, 0.8],
+                    width: 3
+                })
+            })
+        ];
+        geometry.forEachSegment(function (start, end) {
+            var dx = end[0] - start[0];
+            var dy = end[1] - start[1];
+            var rotation = Math.atan2(dy, dx);
+            // arrows
+            styles.push(new ol.style.Style({
+                geometry: new ol.geom.Point(end),
+                image: new ol.style.Icon({
+                    src: 'data/arrow.png',
+                    anchor: [0.75, 0.5],
+                    rotateWithView: false,
+                    rotation: -rotation
+                })
+            }));
+        });
+        return styles;
+    };
+    /**
+     * 扩充LineString
+     * @return Array 坐标数组
+     */
+    var expandLineString = function expandLineString(lineString) {
+        var coordinates = lineString.getCoordinates();
+        var expandedCoordinates = [];
+        var size = coordinates.length;
+        if (size >= 2) {
+            for (var i = 0; i < size - 1; i++) {
+                fillCoordinates(coordinates[i], coordinates[i + 1], expandedCoordinates)
+            }
+        }
+        return expandedCoordinates;
+    }
+
+    var fillCoordinates = function fillCoordinates(startCoordinate, endCoordinate, expandedCoordinates) {
+        var routeCoordinates = [];
+        var longX = endCoordinate[0] - startCoordinate[0] > 0 ? endCoordinate[0] - startCoordinate[0] : startCoordinate[0] - endCoordinate[0];
+        var heightY = endCoordinate[1] - startCoordinate[1] > 0 ? endCoordinate[1] - startCoordinate[1] : startCoordinate[1] - endCoordinate[1];
+        //定义步长
+        var stepX = longX / expandNumbers;
+        var stepY = heightY / expandNumbers;
+        var operatorX = startCoordinate[0] >= endCoordinate[0] ? -1 : 1;
+        var operatorY = startCoordinate[1] >= endCoordinate[1] ? -1 : 1;
+        for (var i = 0; i < expandNumbers; i++) {
+            routeCoordinates.push([startCoordinate[0] + i * stepX * operatorX, startCoordinate[1] + i * stepY * operatorY]);
+        }
+        expandedCoordinates.push({"start": startCoordinate, "route": routeCoordinates});
+    }
+
+
+    var expandedCoordinates = expandLineString(new ol.geom.LineString(coordinates));
+    var routeLength = expandedCoordinates[0].route.length;
+    var animating = false;
+    var speed = 10, now;
+
+    var source = new ol.source.Vector();
+
+    var vectorLayer = new ol.layer.Vector({
+        source: source,
+        style: styleFunction
+    });
+
+    var center = ol.proj.fromLonLat([16, 48]);
+    var map = new ol.Map({
+        target: document.getElementById('map'),
+        loadTilesWhileAnimating: true,
+        view: new ol.View({
+            center: center,
+            zoom: 3,
+            minZoom: 2,
+            maxZoom: 19
+        }),
+        layers: [
+            new ol.layer.Tile({
+                source: new ol.source.BingMaps({
+                    imagerySet: 'AerialWithLabels',
+                    key: 'AkGbxXx6tDWf1swIhPJyoAVp06H0s0gDTYslNWWHZ6RoPqMpB9ld5FY1WutX8UoF'
+                })
+            }),
+            vectorLayer
+        ]
+    });
+
+    var index;
+    var lineNoIndex;
+    var lastFeature;
+    var additionalFeatures = [];
+
+    var moveLineFeature = function (event) {
+//        var vectorContext = event.vectorContext;
+        var frameState = event.frameState;
+        if (animating) {
+            var elapsedTime = frameState.time - now;
+            // here the trick to increase speed is to jump some indexes
+            // on lineString coordinates
+            index = Math.round(speed * elapsedTime / 1000);
+            if (index - totalIndices >= routeLength) {
+                lineNoIndex = lineNoIndex + 1;
+                additionalFeatures.push(lastFeature);
+                totalIndices += expandNumbers;
+                if (lineNoIndex >= expandedCoordinates.length) {
+                    stopAnimation(true);
+                    return;
+                }
+            } else {
+                var currentLine = new ol.geom.LineString([expandedCoordinates[lineNoIndex].start, expandedCoordinates[lineNoIndex].route[index - totalIndices]]);
+                var feature = new ol.Feature(currentLine);
+                source.clear();
+                if (additionalFeatures.length > 0) {
+                    source.addFeatures(additionalFeatures);
+                }
+                source.addFeature(feature);
+                lastFeature = feature;
+//                vectorContext.drawFeature(feature, styles.route);
+                // tell OL3 to continue the postcompose animation
+            }
+            map.render();
+        }
+    };
+
+
+    function startAnimation() {
+        if (animating) {
+            stopAnimation(false);
+        } else {
+            animating = true;
+            index = 0;
+            lineNoIndex = 0;
+            now = new Date().getTime();
+            // just in case you pan somewhere else
+            map.getView().setCenter(center);
+            map.on('postcompose', moveLineFeature);
+            map.render();
+        }
+    }
+
+    function stopAnimation(ended) {
+        animating = false;
+        map.un('postcompose', moveLineFeature);
+    }
+    startAnimation();
+</script>
+</body>
+</html>

@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <title>Box Selection</title>
+    <link rel="stylesheet" href="http://openlayers.org/en/v3.16.0/css/ol.css" type="text/css">
+    <script src="http://openlayers.org/en/v3.16.0/build/ol.js"></script>
+    <script src="https://code.jquery.com/jquery-2.2.3.min.js"></script>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css">
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js"></script>
+    <style>
+
+        #marker {
+            width: 20px;
+            height: 20px;
+            border: 1px solid #088;
+            border-radius: 10px;
+            background-color: #0FF;
+            opacity: 0.5;
+        }
+
+        .map {
+            /*height: 400px;*/
+            width: 100%;
+        }
+
+        .ol-dragbox {
+            border-color: rgba(100, 150, 0, 1);
+        }
+
+        #vienna {
+            text-decoration: none;
+            color: white;
+            font-size: 11pt;
+            font-weight: bold;
+            text-shadow: black 0.1em 0.1em 0.2em;
+        }
+
+        .popover-content {
+            min-width: 180px;
+        }
+    </style>
+</head>
+<body>
+<div id="map" class="map"></div>
+<div class="icon" style="display: none;">
+    <!-- Clickable label for Vienna -->
+    <a class="overlay" id="vienna" target="_blank" href="javascript:void(0);">icon</a>
+</div>
+<script>
+    var startCoordinate;
+    var endCoordinate;
+    var appendVectorLayers = [];
+    var appendOverlays = [];
+    var pos;
+
+    var iconFeature = new ol.Feature({
+        name: 'icon',
+        population: 4000,
+        rainfall: 500
+    });
+
+    var iconLayer = new ol.layer.Vector({
+        source: new ol.source.Vector({
+            features: [iconFeature]
+        })
+    });
+
+    var map = new ol.Map({
+        layers: [
+            new ol.layer.Tile({
+                source: new ol.source.MapQuest({layer: 'sat'})
+            })
+        ],
+        target: 'map',
+        view: new ol.View({
+            center: [-11000000, 4600000],
+            zoom: 4
+        })
+    });
+
+    //    // a DragBox interaction used to select features by drawing boxes
+    var dragBox = new ol.interaction.DragBox({
+        condition: ol.events.condition.platformModifierKeyOnly
+    });
+    //
+    map.addInteraction(dragBox);
+
+    dragBox.on('boxend', function (event) {
+
+        endCoordinate = event.coordinate;
+
+        var featureArray = [];
+        featureArray.push(new ol.Feature({
+            geometry: dragBox.getGeometry()
+        }));
+
+        var layer = new ol.layer.Vector({
+            source: new ol.source.Vector(
+                    {
+                        features: new ol.Collection(featureArray)
+                    })
+        });
+
+
+        //calculateCoordinate();
+        // Vienna label ol.proj.fromLonLat([16,48])
+        var vienna = new ol.Overlay({
+            element: document.getElementById('vienna')
+        });
+        vienna.setPosition(calculateCoordinate());
+        iconFeature.setGeometry(new ol.geom.Point(calculateCoordinate()));
+        appendOverlays.push(vienna);
+        map.addLayer(layer);
+        map.addLayer(iconLayer);
+        appendVectorLayers.push(layer);
+        appendVectorLayers.push(iconLayer);
+//        map.addOverlay(vienna);
+    });
+
+
+    var icon = document.getElementById("vienna");
+
+    icon.addEventListener("mouseover", function (event) {
+        icon.innerHTML = "hello";
+    });
+
+    icon.addEventListener("mouseout", function (event) {
+        icon.innerHTML = "icon";
+    });
+
+    // clear selection when drawing a new box and when clicking on the map
+    dragBox.on('boxstart', function (event) {
+        startCoordinate = event.coordinate;
+        if (appendVectorLayers[0] != null && appendVectorLayers[0] != 'undefined') {
+            map.removeLayer(appendVectorLayers[0]);
+        }
+        if (appendOverlays[0] != null && appendOverlays[0] != 'undefined') {
+            map.removeOverlay(appendOverlays[0]);
+        }
+        appendVectorLayers = [];
+        appendOverlays = [];
+        restoreIcon();
+    });
+    map.on('click', function (event) {
+
+        var coordinate = event.coordinate;
+
+        var feature = map.forEachFeatureAtPixel(event.pixel,
+                function (feature) {
+                    return feature;
+                });
+        if (feature) {
+            if(feature.getGeometry() instanceof ol.geom.Point){
+                alert("hello");
+            }
+        } else {
+            if (appendVectorLayers != null && appendVectorLayers != 'undefined') {
+                for (var i = 0; i < appendVectorLayers.length; i++) {
+                    map.removeLayer(appendVectorLayers[i]);
+                }
+            }
+            if (appendOverlays[0] != null && appendOverlays[0] != 'undefined') {
+                map.removeOverlay(appendOverlays[0]);
+            }
+            appendVectorLayers = [];
+            appendOverlays = [];
+//        restoreIcon();
+        }
+    });
+
+    function calculateCoordinate() {
+        var startX = startCoordinate[0];
+        var endX = endCoordinate[0];
+        var startY = startCoordinate[1];
+        var endY = endCoordinate[1];
+        var length = startX - endX >= 0 ? startX - endX : endX - startX;
+        var height = startY - endY >= 0 ? startY - endY : endY - startY;
+        var ratio = length / height;
+        var coordinateX = startX > endX ? startX - (startX - endX) * 0.05 : endX - (endX - startX) * 0.05;
+//        var coordinateX = startX > endX ? startX : endX;
+
+        var coordinateY = startY > endY ? startY - (startY - endY) * ratio * 0.05 : endY - (endY - startY) * ratio * 0.05;
+//        var coordinateY = startY > endY ? startY : endY;
+
+        var coordinate = [];
+        coordinate.push(coordinateX);
+        coordinate.push(coordinateY);
+        return coordinate;
+    }
+
+    function restoreIcon() {
+        var icon = document.getElementById("vienna");
+
+        icon.addEventListener("mouseover", function (event) {
+            icon.innerHTML = "hello";
+        });
+
+        icon.addEventListener("mouseout", function (event) {
+            icon.innerHTML = "icon";
+        });
+
+        $("div.icon").append('<a class="overlay" id="vienna" target="_blank" href="javascript:void(0);">icon</a>');
+    }
+
+
+</script>
+</body>
+</html>
